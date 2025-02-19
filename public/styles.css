@@ -1,0 +1,28 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #000;
+  /* 黒背景 */
+  overflow: hidden;
+  /* 画面スクロールなし */
+}
+
+#gameCanvas {
+  display: block;
+  background: #000;
+  /* 黒背景 */
+  margin: 0 auto;
+  border: 1px solid #444;
+}
+
+#scoreboard {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  color: #0f0;
+  /* レトロな表示にするための明るい緑 */
+  font-family: monospace;
+  font-size: 16px;
+  white-space: nowrap;
+}
