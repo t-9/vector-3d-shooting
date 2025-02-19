@@ -77,13 +77,12 @@ const enemyModelLines = [
 const NUM_STARS = 200;
 let stars = [];
 function initStars() {
-  // ある程度の範囲内にランダム配置
-  // zは遠く(数百～数千)に配置しておく
+  // ある程度の範囲内にランダム配置 (zは遠方)
   for (let i = 0; i < NUM_STARS; i++) {
     stars.push({
       x: (Math.random() - 0.5) * 2000, // -1000 ~ 1000
       y: (Math.random() - 0.5) * 2000, // -1000 ~ 1000
-      z: 500 + Math.random() * 2500    // 500 ~ 3000
+      z: 500 + Math.random() * 2500    //  500 ~ 3000
     });
   }
 }
@@ -94,13 +93,19 @@ let groundGrid = [];
 function initGroundGrid() {
   const size = 2000;
   const step = 200;
-  // z方向にライン
+  // z方向ライン
   for (let x = -size; x <= size; x += step) {
-    groundGrid.push({ from: { x, y: -10, z: 100 }, to: { x, y: -10, z: 2000 } });
+    groundGrid.push({
+      from: { x, y: -10, z: 100 },
+      to: { x, y: -10, z: 2000 }
+    });
   }
-  // x方向にライン
+  // x方向ライン
   for (let z = 100; z <= 2000; z += step) {
-    groundGrid.push({ from: { x: -size, y: -10, z }, to: { x: size, y: -10, z } });
+    groundGrid.push({
+      from: { x: -size, y: -10, z },
+      to: { x: size, y: -10, z }
+    });
   }
 }
 
@@ -146,13 +151,13 @@ function initAudio() {
 //=======================//
 
 window.addEventListener('keydown', (e) => {
-  // 矢印キーやスペースでページがスクロールされるのを防ぐ
+  // 矢印キーやスペースがスクロールを起こさないように
   if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) {
     e.preventDefault();
   }
 
   if (gameOver) {
-    // ゲームオーバー時にRキーでリスタート可能
+    // ゲームオーバー時にRキーでリスタート
     if (e.code === 'KeyR') {
       restartGame();
     }
@@ -177,7 +182,7 @@ window.addEventListener('keydown', (e) => {
       keys.down = true;
       break;
     case 'Space':
-      initAudio(); // 初回のスペース押下でAudioContextを初期化
+      initAudio(); // 初回のスペース押下でAudioContext初期化
       keys.shoot = true;
       // 連射タイミングならすぐ発射
       const now = performance.now();
@@ -214,34 +219,62 @@ window.addEventListener('keyup', (e) => {
 });
 
 //=======================//
+//  カメラ空間→ワールド空間 //
+//=======================//
+
+/**
+ * カメラ空間上の座標(cx,cy,cz)を、カメラのyaw/pitchに基づき
+ * ワールド空間へ変換して返す。
+ * （カメラはワールド原点(0,0,0)にあり、camYaw, camPitchのみを適用）
+ */
+function cameraSpaceToWorldSpace(cx, cy, cz) {
+  const cosP = Math.cos(camPitch);
+  const sinP = Math.sin(camPitch);
+  const cosY = Math.cos(camYaw);
+  const sinY = Math.sin(camYaw);
+
+  // 1) ピッチ回転(カメラのX軸中心に回転)を適用
+  //    ただし "逆" でなく "順" の変換(カメラ視点→ワールド)なので +pitch
+  let x1 = cx;
+  let y1 = cosP * cy - sinP * cz;
+  let z1 = sinP * cy + cosP * cz;
+
+  // 2) ヨー回転(カメラのY軸中心に回転)を適用
+  //    同様に +yaw
+  let x2 = cosY * x1 - sinY * z1;
+  let y2 = y1;
+  let z2 = sinY * x1 + cosY * z1;
+
+  return { x: x2, y: y2, z: z2 };
+}
+
+//=======================//
 //     弾の発射処理       //
 //=======================//
 
 function fireBullet() {
-  // 弾の向き: camYaw, camPitchから算出
+  // カメラ空間で "前方" とみなす座標: (0,0,1)
+  // 少し前に置きたいので、発射位置は z=muzzleOffset 付近にする
+  const muzzleOffset = 5;
+  const spawnCS = { x: 0, y: 0, z: muzzleOffset }; // カメラ空間でちょい前
+  const forwardCS = { x: 0, y: 0, z: 1 };          // カメラ空間で前を向くベクトル
+
+  // カメラ空間→ワールド空間に変換
+  const spawnWS = cameraSpaceToWorldSpace(spawnCS.x, spawnCS.y, spawnCS.z);
+  const forwardWS = cameraSpaceToWorldSpace(forwardCS.x, forwardCS.y, forwardCS.z);
+
+  // 弾速
   const bulletSpeed = 500;
 
-  // カメラが向いている方向ベクトル
-  const dir = {
-    x: Math.sin(camYaw) * Math.cos(camPitch),
-    y: Math.sin(camPitch),
-    z: Math.cos(camYaw) * Math.cos(camPitch)
-  };
-
-  // カメラ位置(0,0,0)より、少し前方にオフセットして弾を出す
-  // これで2D投影した際に、弾がきちんと画面中心から発射される
-  const muzzleOffset = 5; // カメラ前方に5だけ置く
-  const startX = dir.x * muzzleOffset;
-  const startY = dir.y * muzzleOffset;
-  const startZ = dir.z * muzzleOffset;
-
+  // (0,0,0)はカメラ位置。spawnWS はワールド空間での初期座標
+  // forwardWS はワールド空間での向きベクトル
   bullets.push({
-    x: startX,
-    y: startY,
-    z: startZ,
-    vx: dir.x * bulletSpeed,
-    vy: dir.y * bulletSpeed,
-    vz: dir.z * bulletSpeed,
+    x: spawnWS.x,
+    y: spawnWS.y,
+    z: spawnWS.z,
+    vx: forwardWS.x * bulletSpeed,
+    vy: forwardWS.y * bulletSpeed,
+    vz: forwardWS.z * bulletSpeed,
     time: 0
   });
 
@@ -254,16 +287,16 @@ function fireBullet() {
 //=======================//
 
 function spawnEnemyWave() {
-  // 経過時間から難易度レベルを設定
+  // 経過時間から難易度レベルを計算
   const elapsed = performance.now() - startTime;
   const difficultyLevel = Math.floor(elapsed / 30000); // 30秒ごとにレベルアップ
   const enemySpeed = 100 * (1 + 0.2 * difficultyLevel); // レベルごとに20%アップ
 
-  // 3割くらいの確率でフォーメーションを出す(3機)
+  // 3割くらいの確率でフォーメーション(3機)
   if (Math.random() < 0.3) {
     const baseX = (Math.random() * 600) - 300; // -300 ~ 300
     const baseY = (Math.random() * 300) - 150; // -150 ~ 150
-    const baseZ = 1000 + Math.random() * 200;  // 1000 ~ 1200
+    const baseZ = 1000 + Math.random() * 200;  // 1000~1200
     const leader = createEnemy(baseX, baseY, baseZ, enemySpeed);
     const wing1 = createEnemy(baseX - 60, baseY + 10, baseZ + 20, enemySpeed);
     const wing2 = createEnemy(baseX + 60, baseY - 10, baseZ + 20, enemySpeed);
@@ -287,7 +320,7 @@ function createEnemy(sx, sy, sz, speed) {
   const vy = (dy / dist) * speed;
   const vz = (dz / dist) * speed;
 
-  // ジグザグ回避行動
+  // ジグザグ回避行動 (ランダム軸 + スピード)
   let evasionAxis = Math.random() < 0.5 ? 'x' : 'y';
   let evasionSpeedX = 0;
   let evasionSpeedY = 0;
@@ -296,7 +329,7 @@ function createEnemy(sx, sy, sz, speed) {
   } else {
     evasionSpeedY = (Math.random() < 0.5 ? 1 : -1) * 20;
   }
-  const evasionInterval = 1000 + Math.random() * 1000; // 1~2秒ごとに反転
+  const evasionInterval = 1000 + Math.random() * 1000; // 1~2秒ごと反転
 
   return {
     x: sx, y: sy, z: sz,
@@ -330,8 +363,8 @@ function createExplosion(x, y, z) {
     explosions.push({
       x, y, z,
       vx, vy, vz,
-      life: 0,           // 生存時間
-      maxLife: 1 + Math.random() * 0.5 // 爆発が消えるまでの時間
+      life: 0,
+      maxLife: 1 + Math.random() * 0.5
     });
   }
 }
@@ -346,7 +379,7 @@ function updateEnemies(dt) {
     enemy.y += enemy.vy * dt;
     enemy.z += enemy.vz * dt;
 
-    // 回避行動(左右・上下)のジグザグ
+    // 回避行動(ジグザグ)
     enemy.evasionTimer -= dt * 1000;
     if (enemy.evasionTimer <= 0) {
       if (enemy.evasionAxis === 'x') {
@@ -359,7 +392,7 @@ function updateEnemies(dt) {
     enemy.x += enemy.evasionVX * dt;
     enemy.y += enemy.evasionVY * dt;
 
-    // 見た目用: 進行方向から機体のyaw/pitchを計算
+    // 見た目用：進行方向から機体のyaw/pitchを計算
     const vxTotal = enemy.vx + enemy.evasionVX;
     const vyTotal = enemy.vy + enemy.evasionVY;
     const vzTotal = enemy.vz;
@@ -368,7 +401,7 @@ function updateEnemies(dt) {
     enemy.pitch = (speed > 0) ? Math.asin(vyTotal / speed) : 0;
   });
 
-  // カメラ(Z=0)を通り過ぎたら消去 & ライフ減少
+  // カメラ(Z=0)を通り過ぎたら(= z <= 0)消去 & ライフ減少
   for (let i = 0; i < enemies.length; i++) {
     if (enemies[i].z <= 0) {
       enemies.splice(i, 1);
@@ -404,7 +437,7 @@ function updateBullets(dt) {
         enemy._dead = true;
         bullet._dead = true;
 
-        // スコアとコンボ処理
+        // スコア & コンボ
         const now = performance.now();
         if (now - lastKillTime < 2000) {
           comboCount++;
@@ -424,9 +457,9 @@ function updateBullets(dt) {
     }
   });
 
-  // 弾が寿命切れ or _deadになったものを除去
+  // 寿命切れまたはヒットした弾を除去
   bullets = bullets.filter(b => !b._dead && b.time < bulletLifeTime);
-  // 敵もヒットしたものを除去
+  // ヒットした敵も除去
   enemies = enemies.filter(e => !e._dead);
 }
 
@@ -437,7 +470,7 @@ function updateExplosions(dt) {
     ex.z += ex.vz * dt;
     ex.life += dt;
   });
-  // 寿命を超えた爆発パーティクルを除去
+  // 寿命超過パーティクルを除去
   explosions = explosions.filter(ex => ex.life < ex.maxLife);
 }
 
@@ -445,24 +478,24 @@ function updateExplosions(dt) {
 //     カメラ変換関数     //
 //=======================//
 
-// 敵機ワイヤーフレーム座標 -> ワールド座標 -> カメラ座標
+// 敵機ワイヤーフレーム(ローカル座標) -> ワールド座標 -> カメラ座標
 function applyEnemyTransform(point, enemy) {
   const cosYaw = Math.cos(enemy.yaw);
   const sinYaw = Math.sin(enemy.yaw);
   const cosPitch = Math.cos(enemy.pitch);
   const sinPitch = Math.sin(enemy.pitch);
 
-  // 1) 機体のyaw回転
+  // 機体Yaw回転
   let x = cosYaw * point.x - sinYaw * point.z;
   let z = sinYaw * point.x + cosYaw * point.z;
   let y = point.y;
 
-  // 2) 機体のpitch回転
+  // 機体Pitch回転
   let y2 = cosPitch * y - sinPitch * z;
   let z2 = sinPitch * y + cosPitch * z;
   let x2 = x;
 
-  // 3) ワールドに平行移動
+  // ワールド位置に平行移動
   return {
     x: enemy.x + x2,
     y: enemy.y + y2,
@@ -470,23 +503,24 @@ function applyEnemyTransform(point, enemy) {
   };
 }
 
-// ワールド座標 -> カメラ座標(カメラは原点、camYaw/pitchは逆回転)
+// ワールド座標 -> カメラ座標
 function applyCameraTransform(pt) {
   const cosYaw = Math.cos(camYaw);
   const sinYaw = Math.sin(camYaw);
   const cosPitch = Math.cos(camPitch);
   const sinPitch = Math.sin(camPitch);
 
+  // カメラは(0,0,0)なので、まず平行移動は不要(=そのまま)
   let px = pt.x;
   let py = pt.y;
   let pz = pt.z;
 
-  // 1) カメラyawの逆回転
+  // カメラYawの "逆" 回転
   let x = cosYaw * px + sinYaw * pz;
   let z = -sinYaw * px + cosYaw * pz;
   let y = py;
 
-  // 2) カメラpitchの逆回転
+  // カメラPitchの "逆" 回転
   let y2 = cosPitch * y + sinPitch * z;
   let z2 = -sinPitch * y + cosPitch * z;
   let x2 = x;
@@ -499,25 +533,23 @@ function applyCameraTransform(pt) {
 //=======================//
 
 function drawScene() {
-  // 画面クリア(黒)
+  // 背景クリア(黒)
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-  // 1) 背景の星を描画
+  // 1) 星を描画(単純なドット)
   ctx.fillStyle = "#AAA";
   for (let s of stars) {
     const cpt = applyCameraTransform(s);
     if (cpt.z > 0) {
-      // zが0より前(カメラの前)にある星だけ投影
       const sx = CENTER_X + (cpt.x * 500 / cpt.z);
       const sy = CENTER_Y - (cpt.y * 500 / cpt.z);
-      // 小さめのドット
       ctx.fillRect(sx, sy, 1, 1);
     }
   }
 
-  // 2) 地面のグリッドをワイヤーフレームで描画
-  ctx.strokeStyle = "#060"; // 薄い緑
+  // 2) 地面のグリッドを描画(ワイヤーフレーム)
+  ctx.strokeStyle = "#060";
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let line of groundGrid) {
@@ -534,14 +566,13 @@ function drawScene() {
   }
   ctx.stroke();
 
-  // 3) 敵機のワイヤーフレームを描画
+  // 3) 敵機ワイヤーフレームを描画
   ctx.strokeStyle = "#FFF";
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let enemy of enemies) {
     for (let line of enemyModelLines) {
       const { from, to } = line;
-      // 敵機ローカル座標 -> ワールド座標 -> カメラ座標
       const p1 = applyEnemyTransform(from, enemy);
       const p2 = applyEnemyTransform(to, enemy);
       const cp1 = applyCameraTransform(p1);
@@ -571,7 +602,7 @@ function drawScene() {
   }
 
   // 5) 爆発パーティクルを描画(小さな点)
-  ctx.fillStyle = "#F80"; // オレンジ色
+  ctx.fillStyle = "#F80";
   for (let ex of explosions) {
     const cp = applyCameraTransform(ex);
     if (cp.z > 0) {
@@ -581,7 +612,7 @@ function drawScene() {
     }
   }
 
-  // 6) クロスヘア (照準) を画面中央に描く
+  // 6) クロスヘア(照準)を画面中央に
   ctx.strokeStyle = "#0F0";
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -622,7 +653,7 @@ function gameLoop(timestamp) {
   prevTime = timestamp;
 
   // カメラ操作(回転)
-  const turnSpeed = 2.0; // 1秒あたり2ラジアン
+  const turnSpeed = 2.0; // 秒あたり2ラジアン
   if (keys.left) camYaw -= turnSpeed * dt;
   if (keys.right) camYaw += turnSpeed * dt;
   if (keys.up) camPitch += turnSpeed * dt;
@@ -696,5 +727,4 @@ function restartGame() {
 //    ゲーム開始          //
 //=======================//
 
-// 最初のフレームを要求
 requestAnimationFrame(gameLoop);
